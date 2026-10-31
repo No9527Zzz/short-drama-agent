@@ -1122,3 +1122,60 @@ def list_exports(project_id: str) -> list[MediaAsset]:
         ).fetchall()
     return [row_to_media_asset(row) for row in rows]
 
+
+
+@app.post("/api/projects/{project_id}/generation-tasks/{task_id}/cancel", response_model=GenerationTask)
+def cancel_generation_task(project_id: str, task_id: str) -> GenerationTask:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        connection.execute(
+            """
+            UPDATE generation_tasks SET status = 'cancelled', updated_at = ?
+            WHERE id = ? AND project_id = ? AND status IN ('queued', 'running')
+            """,
+            (now, task_id, project_id),
+        )
+        row = connection.execute(
+            "SELECT * FROM generation_tasks WHERE id = ? AND project_id = ?",
+            (task_id, project_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return row_to_generation_task(row)
+
+
+@app.post("/api/projects/{project_id}/generation-tasks/{task_id}/retry", response_model=GenerationTask)
+def retry_generation_task(project_id: str, task_id: str) -> GenerationTask:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        connection.execute(
+            """
+            UPDATE generation_tasks
+            SET status = 'queued', progress = 0, error_message = '', updated_at = ?
+            WHERE id = ? AND project_id = ? AND status IN ('failed', 'cancelled')
+            """,
+            (now, task_id, project_id),
+        )
+        row = connection.execute(
+            "SELECT * FROM generation_tasks WHERE id = ? AND project_id = ?",
+            (task_id, project_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return row_to_generation_task(row)
+
+
+@app.get("/api/projects/{project_id}/generation-tasks/{task_id}", response_model=GenerationTask)
+def get_generation_task(project_id: str, task_id: str) -> GenerationTask:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        row = connection.execute(
+            "SELECT * FROM generation_tasks WHERE id = ? AND project_id = ?",
+            (task_id, project_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return row_to_generation_task(row)
+

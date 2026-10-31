@@ -34,8 +34,23 @@ def start_worker() -> None:
     with _worker_lock:
         if _worker_started:
             return
+        recover_stale_tasks()
         _worker_started = True
         threading.Thread(target=worker_loop, name="short-drama-worker", daemon=True).start()
+
+
+def recover_stale_tasks() -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE generation_tasks
+            SET status = 'queued', progress = 0, error_message = '服务重启后自动恢复',
+                updated_at = ?
+            WHERE status = 'running'
+              AND updated_at < datetime('now', '-10 minutes')
+            """,
+            (utc_now(),),
+        )
 
 
 def worker_loop() -> None:
@@ -59,7 +74,11 @@ def claim_task() -> dict | None:
             return None
         now = utc_now()
         connection.execute(
-            "UPDATE generation_tasks SET status = 'running', progress = 1, updated_at = ? WHERE id = ? AND status = 'queued'",
+            """
+            UPDATE generation_tasks
+            SET status = 'running', progress = 1, error_message = '', updated_at = ?
+            WHERE id = ? AND status = 'queued'
+            """,
             (now, task["id"]),
         )
         claimed = connection.execute(
@@ -68,20 +87,36 @@ def claim_task() -> dict | None:
     return dict(claimed) if claimed else None
 
 
+def is_cancelled(task_id: str) -> bool:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT status FROM generation_tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+    return row is None or row["status"] == "cancelled"
+
+
 def update_task(task_id: str, status: str, progress: int, error: str = "") -> None:
     with get_connection() as connection:
         connection.execute(
-            "UPDATE generation_tasks SET status = ?, progress = ?, error_message = ?, updated_at = ? WHERE id = ?",
+            """
+            UPDATE generation_tasks
+            SET status = ?, progress = ?, error_message = ?, updated_at = ?
+            WHERE id = ? AND status != 'cancelled'
+            """,
             (status, progress, error, utc_now(), task_id),
         )
 
 
 def process_task(task: dict) -> None:
     try:
+        if is_cancelled(task["id"]):
+            return
         if task["task_type"] == "compose_episode":
             compose_episode(task)
         elif task["task_type"] == "image_generation":
             raise RuntimeError("尚未配置本地图片模型适配器，请先上传镜头图片")
+        elif task["task_type"] == "speech_generation":
+            raise RuntimeError("尚未配置本地 TTS Provider，请先上传音频")
         else:
             raise RuntimeError(f"不支持的任务类型：{task['task_type']}")
     except Exception as exc:
@@ -126,6 +161,11 @@ def format_timestamp(seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},000"
 
 
+def subtitle_filter(path: Path) -> str:
+    escaped = path.as_posix().replace(":", "\\:")
+    return f"subtitles='{escaped}'"
+
+
 def compose_episode(task: dict) -> None:
     binary = ffmpeg_path()
     if not binary:
@@ -159,15 +199,24 @@ def compose_episode(task: dict) -> None:
         write_srt(shots, subtitle_path)
         clips = []
         for index, shot in enumerate(shots, start=1):
+            if is_cancelled(task["id"]):
+                return
             clip_path = temp_dir / f"shot_{index:02d}.mp4"
+            frames = shot["duration_seconds"] * 25
+            filter_expression = (
+                "scale=1080:1920:force_original_aspect_ratio=increase,"
+                "crop=1080:1920,"
+                f"zoompan=z='min(zoom+0.0015,1.08)':d={frames}:s=1080x1920:fps=25"
+            )
             command = [
                 binary, "-y", "-loop", "1", "-i", images[shot["shot_number"]],
-                "-t", str(shot["duration_seconds"]),
-                "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
-                "-r", "25", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-frames:v", str(frames), "-vf", filter_expression,
+                "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
                 str(clip_path),
             ]
-            subprocess.run(command, check=True, capture_output=True, text=True)
+            result = subprocess.run(command, check=False, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr[-1200:])
             clips.append(clip_path)
             update_task(task["id"], "running", min(80, 5 + index * 10))
         concat_path = temp_dir / "concat.txt"
@@ -175,13 +224,17 @@ def compose_episode(task: dict) -> None:
             "\n".join(f"file '{clip.as_posix()}'" for clip in clips),
             encoding="utf-8",
         )
+        filter_expression = subtitle_filter(subtitle_path) if subtitle_path.stat().st_size else "null"
         command = [
             binary, "-y", "-f", "concat", "-safe", "0", "-i", str(concat_path),
             "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-            "-shortest", "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p",
-            "-r", "25", "-movflags", "+faststart", str(output_path),
+            "-vf", filter_expression, "-shortest", "-c:v", "libx264", "-c:a", "aac",
+            "-pix_fmt", "yuv420p", "-r", "25", "-movflags", "+faststart",
+            str(output_path),
         ]
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr[-1200:])
         with get_connection() as connection:
             now = utc_now()
             connection.execute(
@@ -189,10 +242,10 @@ def compose_episode(task: dict) -> None:
                 INSERT INTO media_assets
                     (id, project_id, episode_number, shot_number, asset_type,
                      file_name, relative_path, mime_type, status, metadata_json, created_at)
-                VALUES (?, ?, ?, ?, 'video', ?, ?, 'video/mp4', 'generated', ?, ?)
+                VALUES (?, ?, ?, 0, 'video', ?, ?, 'video/mp4', 'generated', ?, ?)
                 """,
                 (
-                    task["id"] + "-video", project_id, episode_number, 0,
+                    task["id"] + "-video", project_id, episode_number,
                     output_path.name,
                     str(output_path.relative_to(ROOT / "data")).replace("\\", "/"),
                     json.dumps({"subtitle_path": str(subtitle_path.relative_to(ROOT / "data")).replace("\\", "/")}, ensure_ascii=False),
