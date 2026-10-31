@@ -288,3 +288,180 @@ document.querySelector("#parse-source").addEventListener("click", async () => {
   }
 });
 
+
+
+let editableCharacters = [];
+let editableLocations = [];
+let editableScripts = [];
+
+async function loadEditableAssets() {
+  if (!selectedProject) return;
+  const base = "/api/projects/" + selectedProject.id;
+  const [charactersResponse, locationsResponse, scriptsResponse] = await Promise.all([
+    fetch(base + "/characters"), fetch(base + "/locations"), fetch(base + "/scripts"),
+  ]);
+  editableCharacters = await charactersResponse.json();
+  editableLocations = await locationsResponse.json();
+  editableScripts = await scriptsResponse.json();
+  if (!editableCharacters.length && !editableLocations.length && !editableScripts.length) return;
+  document.querySelector("#asset-editor").classList.remove("hidden");
+  document.querySelector("#script-editor").classList.toggle("hidden", !editableScripts.length);
+  const characterSelect = document.querySelector("#character-select");
+  const locationSelect = document.querySelector("#location-select");
+  const scriptSelect = document.querySelector("#script-select");
+  characterSelect.innerHTML = editableCharacters.map((item) =>
+    '<option value="' + item.id + '">' + escapeHtml(item.name) + '</option>').join("");
+  locationSelect.innerHTML = editableLocations.map((item) =>
+    '<option value="' + item.id + '">' + escapeHtml(item.name) + '</option>').join("");
+  scriptSelect.innerHTML = editableScripts.map((item) =>
+    '<option value="' + item.episode_number + '">第' + item.episode_number + '集 · ' +
+    escapeHtml(item.title) + '</option>').join("");
+  fillCharacterForm();
+  fillLocationForm();
+  fillScriptForm();
+  await loadSceneEditor();
+}
+
+function fillCharacterForm() {
+  const item = editableCharacters.find((entry) =>
+    entry.id === document.querySelector("#character-select").value);
+  if (!item) return;
+  document.querySelector("#character-name").value = item.name;
+  document.querySelector("#character-role").value = item.role_type;
+  document.querySelector("#character-voice").value = item.voice_name;
+  document.querySelector("#character-description").value = item.description;
+  document.querySelector("#character-image").value = item.reference_image_path;
+}
+
+function fillLocationForm() {
+  const item = editableLocations.find((entry) =>
+    entry.id === document.querySelector("#location-select").value);
+  if (!item) return;
+  document.querySelector("#location-name").value = item.name;
+  document.querySelector("#location-time").value = item.time_of_day;
+  document.querySelector("#location-description").value = item.description;
+  document.querySelector("#location-image").value = item.reference_image_path;
+}
+
+function fillScriptForm() {
+  const item = editableScripts.find((entry) =>
+    String(entry.episode_number) === document.querySelector("#script-select").value);
+  if (!item) return;
+  document.querySelector("#script-title").value = item.title;
+  document.querySelector("#script-status").value = item.status;
+  document.querySelector("#script-synopsis").value = item.synopsis;
+  document.querySelector("#script-dialogue").value = item.dialogue_text;
+}
+
+async function loadSceneEditor() {
+  const episode = document.querySelector("#script-select").value;
+  if (!episode || !selectedProject) return;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" + episode + "/scenes");
+  const scenes = await response.json();
+  document.querySelector("#scene-editor").innerHTML = scenes.map((scene) =>
+    '<div class="scene-card"><h3>第' + scene.scene_number + '场</h3>' +
+    '<div class="scene-grid"><label>地点<input data-scene-field="location_name" value="' +
+    escapeAttr(scene.location_name) + '"></label><label>时间<input data-scene-field="time_of_day" value="' +
+    escapeAttr(scene.time_of_day) + '"></label><label class="wide">出场人物<input data-scene-field="character_names" value="' +
+    escapeAttr(scene.character_names.join("、")) + '"></label><label class="wide">动作<textarea data-scene-field="action_text">' +
+    escapeHtml(scene.action_text) + '</textarea></label><label class="wide">对白<textarea data-scene-field="dialogue_text">' +
+    escapeHtml(scene.dialogue_text) + '</textarea></label></div><button class="secondary save-scene" data-scene="' +
+    scene.scene_number + '">保存本场</button></div>'
+  ).join("");
+  document.querySelectorAll(".save-scene").forEach((button) => {
+    button.addEventListener("click", () => saveScene(Number(button.dataset.scene)));
+  });
+}
+
+async function saveScene(sceneNumber) {
+  const episode = document.querySelector("#script-select").value;
+  const card = [...document.querySelectorAll(".scene-card")].find((item) =>
+    item.querySelector(".save-scene").dataset.scene === String(sceneNumber));
+  const value = (field) => card.querySelector('[data-scene-field="' + field + '"]').value;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" + episode + "/scenes/" + sceneNumber, {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      location_name: value("location_name"),
+      time_of_day: value("time_of_day"),
+      character_names: value("character_names").split(/[、,，]/).map((item) => item.trim()).filter(Boolean),
+      action_text: value("action_text"),
+      dialogue_text: value("dialogue_text"),
+    }),
+  });
+  const data = await response.json();
+  const message = document.querySelector("#script-message");
+  message.style.color = response.ok ? "#217c48" : "#b03a4b";
+  message.textContent = response.ok ? "场景已保存" : (data.detail || "保存场景失败");
+}
+
+document.querySelector("#parse-source").addEventListener("click", () => {
+  setTimeout(() => loadEditableAssets().catch(() => {}), 250);
+});
+document.querySelector("#character-select").addEventListener("change", fillCharacterForm);
+document.querySelector("#location-select").addEventListener("change", fillLocationForm);
+document.querySelector("#script-select").addEventListener("change", () => {
+  fillScriptForm();
+  loadSceneEditor().catch(() => {});
+});
+
+document.querySelector("#character-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const id = document.querySelector("#character-select").value;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/characters/" + id, {
+    method: "PATCH", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      name: document.querySelector("#character-name").value,
+      role_type: document.querySelector("#character-role").value,
+      voice_name: document.querySelector("#character-voice").value,
+      description: document.querySelector("#character-description").value,
+      reference_image_path: document.querySelector("#character-image").value,
+    }),
+  });
+  const message = document.querySelector("#asset-message");
+  message.style.color = response.ok ? "#217c48" : "#b03a4b";
+  message.textContent = response.ok ? "角色设定已保存" : "角色保存失败";
+  if (response.ok) await loadEditableAssets();
+});
+
+document.querySelector("#location-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const id = document.querySelector("#location-select").value;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/locations/" + id, {
+    method: "PATCH", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      name: document.querySelector("#location-name").value,
+      time_of_day: document.querySelector("#location-time").value,
+      description: document.querySelector("#location-description").value,
+      reference_image_path: document.querySelector("#location-image").value,
+    }),
+  });
+  const message = document.querySelector("#asset-message");
+  message.style.color = response.ok ? "#217c48" : "#b03a4b";
+  message.textContent = response.ok ? "场景设定已保存" : "场景保存失败";
+  if (response.ok) await loadEditableAssets();
+});
+
+document.querySelector("#script-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const episode = document.querySelector("#script-select").value;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" + episode, {
+    method: "PATCH", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      title: document.querySelector("#script-title").value,
+      status: document.querySelector("#script-status").value,
+      synopsis: document.querySelector("#script-synopsis").value,
+      dialogue_text: document.querySelector("#script-dialogue").value,
+    }),
+  });
+  const data = await response.json();
+  const message = document.querySelector("#script-message");
+  message.style.color = response.ok ? "#217c48" : "#b03a4b";
+  message.textContent = response.ok ? "单集剧本已保存" : (data.detail || "保存失败");
+  if (response.ok) await loadEditableAssets();
+});
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+

@@ -146,3 +146,34 @@ class ParseSummary(BaseModel):
     scene_count: int
     script_count: int
 
+
+
+class CharacterUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=4000)
+    role_type: str = Field(default="supporting", max_length=40)
+    voice_name: str = Field(default="", max_length=120)
+    reference_image_path: str = Field(default="", max_length=500)
+
+
+class LocationUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=4000)
+    time_of_day: str = Field(default="", max_length=100)
+    reference_image_path: str = Field(default="", max_length=500)
+
+
+class EpisodeScriptUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    synopsis: str = Field(default="", max_length=4000)
+    dialogue_text: str = Field(default="", max_length=10000)
+    status: PlanStatus = "draft"
+
+
+class ScriptSceneUpdate(BaseModel):
+    location_name: str = Field(default="", max_length=160)
+    time_of_day: str = Field(default="", max_length=100)
+    character_names: list[str] = Field(default_factory=list)
+    action_text: str = Field(default="", max_length=4000)
+    dialogue_text: str = Field(default="", max_length=10000)
+

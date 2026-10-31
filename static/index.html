@@ -72,6 +72,43 @@
       <h3 class="subheading">单集剧本草稿</h3>
       <div id="scripts" class="script-list"></div>
     </section>
+    <section id="asset-editor" class="card hidden">
+      <div class="section-heading"><div><p class="eyebrow">ASSET REVIEW</p><h2>角色与场景设定</h2></div></div>
+      <div class="asset-columns">
+        <form id="character-form">
+          <label>角色<select id="character-select"></select></label>
+          <label>名称<input id="character-name" required maxlength="120"></label>
+          <label>身份<input id="character-role" maxlength="40"></label>
+          <label>音色<input id="character-voice" maxlength="120" placeholder="后续接入配音时使用"></label>
+          <label>外貌与人物设定<textarea id="character-description" maxlength="4000"></textarea></label>
+          <label>参考图路径<input id="character-image" maxlength="500"></label>
+          <button type="submit">保存角色</button>
+        </form>
+        <form id="location-form">
+          <label>场景<select id="location-select"></select></label>
+          <label>名称<input id="location-name" required maxlength="160"></label>
+          <label>时间 / 天气<input id="location-time" maxlength="100"></label>
+          <label>场景设定<textarea id="location-description" maxlength="4000"></textarea></label>
+          <label>参考图路径<input id="location-image" maxlength="500"></label>
+          <button type="submit">保存场景</button>
+        </form>
+      </div>
+      <p id="asset-message" class="message" role="status"></p>
+    </section>
+
+    <section id="script-editor" class="card hidden">
+      <div class="section-heading"><div><p class="eyebrow">SCRIPT REVIEW</p><h2>单集剧本</h2></div></div>
+      <form id="script-form">
+        <label>选择集数<select id="script-select"></select></label>
+        <label>审核状态<select id="script-status"><option value="draft">草稿</option><option value="review">待审核</option><option value="approved">已确认</option></select></label>
+        <label>标题<input id="script-title" required maxlength="200"></label>
+        <label class="wide">剧情摘要<textarea id="script-synopsis" maxlength="4000"></textarea></label>
+        <label class="wide">对白与旁白<textarea id="script-dialogue" maxlength="10000"></textarea></label>
+        <button type="submit">保存单集剧本</button>
+      </form>
+      <div id="scene-editor" class="scene-editor"></div>
+      <p id="script-message" class="message" role="status"></p>
+    </section>
     <section id="planning" class="card hidden">
       <div class="section-heading">
         <div><p class="eyebrow">PLANNING</p><h2>整剧规划</h2></div>
@@ -101,5 +138,6 @@
   <script src="/static/app.js"></script>
 </body>
 </html>
+
 
 

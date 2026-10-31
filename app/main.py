@@ -538,3 +538,163 @@ def list_script_scenes(project_id: str, episode_number: int) -> list[ScriptScene
         ).fetchall()
     return [row_to_scene(row) for row in rows]
 
+
+
+from .schemas import (
+    CharacterUpdate,
+    EpisodeScriptUpdate,
+    LocationUpdate,
+    ScriptSceneUpdate,
+)
+
+
+@app.patch("/api/projects/{project_id}/characters/{character_id}", response_model=CharacterAsset)
+def update_character(
+    project_id: str, character_id: str, payload: CharacterUpdate
+) -> CharacterAsset:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        current = connection.execute(
+            "SELECT * FROM characters WHERE id = ? AND project_id = ? AND is_current = 1",
+            (character_id, project_id),
+        ).fetchone()
+        if current is None:
+            raise HTTPException(status_code=404, detail="角色不存在")
+        connection.execute(
+            """
+            UPDATE characters
+            SET name = ?, description = ?, role_type = ?, voice_name = ?,
+                reference_image_path = ?, version = version + 1, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                payload.name.strip(), payload.description.strip(), payload.role_type.strip(),
+                payload.voice_name.strip(), payload.reference_image_path.strip(), now,
+                character_id,
+            ),
+        )
+        connection.execute(
+            "UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id)
+        )
+        row = connection.execute(
+            "SELECT * FROM characters WHERE id = ?", (character_id,)
+        ).fetchone()
+    return row_to_character(row)
+
+
+@app.patch("/api/projects/{project_id}/locations/{location_id}", response_model=LocationAsset)
+def update_location(
+    project_id: str, location_id: str, payload: LocationUpdate
+) -> LocationAsset:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        current = connection.execute(
+            "SELECT * FROM locations WHERE id = ? AND project_id = ? AND is_current = 1",
+            (location_id, project_id),
+        ).fetchone()
+        if current is None:
+            raise HTTPException(status_code=404, detail="场景不存在")
+        connection.execute(
+            """
+            UPDATE locations
+            SET name = ?, description = ?, time_of_day = ?,
+                reference_image_path = ?, version = version + 1, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                payload.name.strip(), payload.description.strip(), payload.time_of_day.strip(),
+                payload.reference_image_path.strip(), now, location_id,
+            ),
+        )
+        connection.execute(
+            "UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id)
+        )
+        row = connection.execute(
+            "SELECT * FROM locations WHERE id = ?", (location_id,)
+        ).fetchone()
+    return row_to_location(row)
+
+
+@app.patch("/api/projects/{project_id}/scripts/{episode_number}", response_model=EpisodeScript)
+def update_episode_script(
+    project_id: str, episode_number: int, payload: EpisodeScriptUpdate
+) -> EpisodeScript:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        current = connection.execute(
+            """
+            SELECT * FROM episode_scripts
+            WHERE project_id = ? AND episode_number = ? AND is_current = 1
+            """,
+            (project_id, episode_number),
+        ).fetchone()
+        if current is None:
+            raise HTTPException(status_code=404, detail="单集剧本不存在")
+        connection.execute(
+            """
+            UPDATE episode_scripts
+            SET title = ?, synopsis = ?, dialogue_text = ?, status = ?,
+                script_version = script_version + 1, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                payload.title.strip(), payload.synopsis.strip(),
+                payload.dialogue_text.strip(), payload.status, now, current["id"],
+            ),
+        )
+        connection.execute(
+            "UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id)
+        )
+        row = connection.execute(
+            "SELECT * FROM episode_scripts WHERE id = ?", (current["id"],)
+        ).fetchone()
+    return row_to_script(row)
+
+
+@app.patch(
+    "/api/projects/{project_id}/scripts/{episode_number}/scenes/{scene_number}",
+    response_model=ScriptScene,
+)
+def update_script_scene(
+    project_id: str,
+    episode_number: int,
+    scene_number: int,
+    payload: ScriptSceneUpdate,
+) -> ScriptScene:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        current = connection.execute(
+            """
+            SELECT * FROM script_scenes
+            WHERE project_id = ? AND episode_number = ? AND scene_number = ?
+            """,
+            (project_id, episode_number, scene_number),
+        ).fetchone()
+        if current is None:
+            raise HTTPException(status_code=404, detail="场景不存在")
+        connection.execute(
+            """
+            UPDATE script_scenes
+            SET location_name = ?, time_of_day = ?, character_names_json = ?,
+                action_text = ?, dialogue_text = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                payload.location_name.strip(), payload.time_of_day.strip(),
+                json.dumps(payload.character_names, ensure_ascii=False),
+                payload.action_text.strip(), payload.dialogue_text.strip(), now,
+                current["id"],
+            ),
+        )
+        connection.execute(
+            "UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id)
+        )
+        row = connection.execute(
+            "SELECT * FROM script_scenes WHERE id = ?", (current["id"],)
+        ).fetchone()
+    return row_to_scene(row)
+
