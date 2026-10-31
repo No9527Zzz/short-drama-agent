@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from .db import ROOT, get_connection, utc_now
-from .providers import get_speech_synthesizer
+from .providers import get_image_generator, get_speech_synthesizer
 
 _worker_started = False
 _worker_lock = threading.Lock()
@@ -115,7 +115,7 @@ def process_task(task: dict) -> None:
         if task["task_type"] == "compose_episode":
             compose_episode(task)
         elif task["task_type"] == "image_generation":
-            raise RuntimeError("尚未配置本地图片模型适配器，请先上传镜头图片")
+            generate_image(task)
         elif task["task_type"] == "speech_generation":
             generate_speech(task)
         else:
@@ -123,6 +123,59 @@ def process_task(task: dict) -> None:
     except Exception as exc:
         update_task(task["id"], "failed", 0, str(exc))
 
+
+def generate_image(task: dict) -> None:
+    project_id = task["project_id"]
+    episode_number = task["episode_number"]
+    shot_number = task["shot_number"]
+    with get_connection() as connection:
+        shot = connection.execute(
+            """
+            SELECT visual_description, action_text, location_name
+            FROM shots
+            WHERE project_id = ? AND episode_number = ? AND shot_number = ?
+              AND storyboard_id IN (SELECT id FROM storyboards WHERE is_current = 1)
+            """,
+            (project_id, episode_number, shot_number),
+        ).fetchone()
+        references = connection.execute(
+            """
+            SELECT relative_path FROM media_assets
+            WHERE project_id = ? AND episode_number = ? AND shot_number = ?
+              AND asset_type = 'image'
+            ORDER BY created_at
+            """,
+            (project_id, episode_number, shot_number),
+        ).fetchall()
+    if shot is None:
+        raise RuntimeError("镜头不存在")
+    output_dir = ROOT / "data" / "media" / project_id / f"episode_{episode_number:03d}" / f"shot_{shot_number:02d}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{task['id']}.png"
+    prompt = "；".join(
+        item for item in [
+            shot["visual_description"], shot["action_text"], shot["location_name"]
+        ] if item
+    )
+    reference_paths = [ROOT / "data" / row["relative_path"] for row in references]
+    get_image_generator().generate(prompt, output_path, reference_paths)
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO media_assets
+                (id, project_id, episode_number, shot_number, asset_type,
+                 file_name, relative_path, mime_type, status, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, 'image', ?, ?, 'image/png', 'generated', ?, ?)
+            """,
+            (
+                task["id"] + "-image", project_id, episode_number, shot_number,
+                output_path.name,
+                str(output_path.relative_to(ROOT / "data")).replace("\\", "/"),
+                json.dumps({"prompt": prompt}, ensure_ascii=False),
+                utc_now(),
+            ),
+        )
+    update_task(task["id"], "succeeded", 100)
 
 def generate_speech(task: dict) -> None:
     project_id = task["project_id"]
@@ -314,6 +367,8 @@ def compose_episode(task: dict) -> None:
         update_task(task["id"], "succeeded", 100)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 
 
 

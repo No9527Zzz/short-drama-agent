@@ -1281,3 +1281,140 @@ def queue_episode_tts(project_id: str, episode_number: int) -> list[GenerationTa
             tasks.append(row_to_generation_task(row))
     return tasks
 
+
+
+@app.get("/api/projects/{project_id}/continuity-check")
+def continuity_check(project_id: str) -> dict:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        characters = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM characters WHERE project_id = ? AND is_current = 1",
+                (project_id,),
+            ).fetchall()
+        }
+        locations = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM locations WHERE project_id = ? AND is_current = 1",
+                (project_id,),
+            ).fetchall()
+        }
+        scenes = connection.execute(
+            """
+            SELECT episode_number, location_name, character_names_json
+            FROM script_scenes WHERE project_id = ?
+            """,
+            (project_id,),
+        ).fetchall()
+        missing_characters = set()
+        missing_locations = set()
+        for scene in scenes:
+            if scene["location_name"] and scene["location_name"] not in locations:
+                missing_locations.add(scene["location_name"])
+            for name in json.loads(scene["character_names_json"]):
+                if name not in characters:
+                    missing_characters.add(name)
+        plans = connection.execute(
+            """
+            SELECT episode_number FROM episode_plans
+            WHERE project_id = ? AND is_current = 1
+            """,
+            (project_id,),
+        ).fetchall()
+        scripts = connection.execute(
+            """
+            SELECT episode_number FROM episode_scripts
+            WHERE project_id = ? AND is_current = 1
+            """,
+            (project_id,),
+        ).fetchall()
+        plan_numbers = {row["episode_number"] for row in plans}
+        script_numbers = {row["episode_number"] for row in scripts}
+        missing_scripts = sorted(plan_numbers - script_numbers)
+        storyboard_rows = connection.execute(
+            """
+            SELECT episode_number, id FROM storyboards
+            WHERE project_id = ? AND is_current = 1
+            """,
+            (project_id,),
+        ).fetchall()
+        duration_issues = []
+        missing_images = []
+        for storyboard in storyboard_rows:
+            total = connection.execute(
+                "SELECT COALESCE(SUM(duration_seconds), 0) AS total FROM shots WHERE storyboard_id = ?",
+                (storyboard["id"],),
+            ).fetchone()["total"]
+            if total != 60:
+                duration_issues.append({"episode_number": storyboard["episode_number"], "total_seconds": total})
+            shot_rows = connection.execute(
+                "SELECT shot_number FROM shots WHERE storyboard_id = ?",
+                (storyboard["id"],),
+            ).fetchall()
+            for shot in shot_rows:
+                asset = connection.execute(
+                    """
+                    SELECT id FROM media_assets
+                    WHERE project_id = ? AND episode_number = ? AND shot_number = ?
+                      AND asset_type = 'image'
+                    LIMIT 1
+                    """,
+                    (project_id, storyboard["episode_number"], shot["shot_number"]),
+                ).fetchone()
+                if asset is None:
+                    missing_images.append({
+                        "episode_number": storyboard["episode_number"],
+                        "shot_number": shot["shot_number"],
+                    })
+    issues = []
+    issues.extend({"type": "missing_character", "name": name} for name in sorted(missing_characters))
+    issues.extend({"type": "missing_location", "name": name} for name in sorted(missing_locations))
+    issues.extend({"type": "missing_script", "episode_number": number} for number in missing_scripts)
+    issues.extend({"type": "duration", **item} for item in duration_issues)
+    issues.extend({"type": "missing_image", **item} for item in missing_images)
+    return {"project_id": project_id, "issue_count": len(issues), "issues": issues}
+
+
+@app.post("/api/projects/{project_id}/batch/compose", response_model=list[GenerationTask], status_code=201)
+def queue_batch_composition(project_id: str) -> list[GenerationTask]:
+    now = utc_now()
+    tasks = []
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        episodes = connection.execute(
+            """
+            SELECT episode_number FROM storyboards
+            WHERE project_id = ? AND is_current = 1
+            ORDER BY episode_number
+            """,
+            (project_id,),
+        ).fetchall()
+        for episode in episodes:
+            existing = connection.execute(
+                """
+                SELECT id FROM generation_tasks
+                WHERE project_id = ? AND episode_number = ? AND task_type = 'compose_episode'
+                  AND status IN ('queued', 'running')
+                """,
+                (project_id, episode["episode_number"]),
+            ).fetchone()
+            if existing:
+                continue
+            task_id = uuid4().hex
+            connection.execute(
+                """
+                INSERT INTO generation_tasks
+                    (id, project_id, episode_number, shot_number, task_type,
+                     status, progress, error_message, created_at, updated_at)
+                VALUES (?, ?, ?, 0, 'compose_episode', 'queued', 0, '', ?, ?)
+                """,
+                (task_id, project_id, episode["episode_number"], now, now),
+            )
+            row = connection.execute(
+                "SELECT * FROM generation_tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            tasks.append(row_to_generation_task(row))
+    return tasks
+

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -19,21 +20,34 @@ class SpeechSynthesizer(Protocol):
 
 
 @dataclass
+class CommandImageGenerator:
+    command_template: str
+
+    def generate(self, prompt: str, output_path: Path, reference_images: list[Path]) -> Path:
+        reference = str(reference_images[0]) if reference_images else ""
+        command = self.command_template.format(
+            prompt=prompt,
+            output=str(output_path),
+            reference=reference,
+        )
+        result = subprocess.run(
+            shlex.split(command, posix=False),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "本地图片命令执行失败")
+        if not output_path.exists():
+            raise RuntimeError("图片 Provider 未生成输出文件")
+        return output_path
+
+
+@dataclass
 class UnconfiguredImageGenerator:
     reason: str = "未配置本地图片模型 Provider"
 
     def generate(self, prompt: str, output_path: Path, reference_images: list[Path]) -> Path:
         raise RuntimeError(self.reason)
-
-
-@dataclass
-class CommandImageGenerator:
-    command: str
-
-    def generate(self, prompt: str, output_path: Path, reference_images: list[Path]) -> Path:
-        raise RuntimeError(
-            "图片命令 Provider 已预留，请将 SHORT_DRAMA_IMAGE_COMMAND 配置为可执行适配器"
-        )
 
 
 class WindowsSapiSpeechSynthesizer:
@@ -79,7 +93,8 @@ class UnconfiguredSpeechSynthesizer:
 
 
 def get_image_generator() -> ImageGenerator:
-    return UnconfiguredImageGenerator()
+    command = os.getenv("SHORT_DRAMA_IMAGE_COMMAND", "").strip()
+    return CommandImageGenerator(command) if command else UnconfiguredImageGenerator()
 
 
 def get_speech_synthesizer() -> SpeechSynthesizer:
