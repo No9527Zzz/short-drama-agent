@@ -915,3 +915,150 @@ def update_shot(
         ).fetchone()
     return row_to_shot(row)
 
+
+
+from pathlib import Path
+import shutil
+from fastapi import File, UploadFile
+from fastapi.staticfiles import StaticFiles
+from .schemas import GenerationTask, MediaAsset
+
+MEDIA_DIR = ROOT / "data" / "media"
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+
+
+def row_to_media_asset(row: sqlite3.Row) -> MediaAsset:
+    data = dict(row)
+    data["metadata"] = json.loads(data.pop("metadata_json"))
+    return MediaAsset(**data)
+
+
+def row_to_generation_task(row: sqlite3.Row) -> GenerationTask:
+    return GenerationTask(**dict(row))
+
+
+@app.post(
+    "/api/projects/{project_id}/scripts/{episode_number}/storyboard/{shot_number}/assets",
+    response_model=MediaAsset,
+    status_code=201,
+)
+async def upload_shot_asset(
+    project_id: str,
+    episode_number: int,
+    shot_number: int,
+    file: UploadFile = File(...),
+) -> MediaAsset:
+    allowed_types = {"image/png", "image/jpeg", "image/webp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=415, detail="仅支持 PNG、JPEG 或 WebP 图片")
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        shot = connection.execute(
+            """
+            SELECT * FROM shots
+            WHERE project_id = ? AND episode_number = ?
+              AND shot_number = ?
+              AND storyboard_id IN (
+                  SELECT id FROM storyboards WHERE is_current = 1
+              )
+            """,
+            (project_id, episode_number, shot_number),
+        ).fetchone()
+        if shot is None:
+            raise HTTPException(status_code=404, detail="镜头不存在")
+    safe_name = Path(file.filename or "reference-image").name
+    extension = Path(safe_name).suffix.lower() or ".bin"
+    asset_id = uuid4().hex
+    file_name = asset_id + extension
+    relative_path = Path("media") / project_id / f"episode_{episode_number:03d}" / f"shot_{shot_number:02d}" / file_name
+    absolute_path = ROOT / "data" / relative_path
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
+    total_size = 0
+    with absolute_path.open("wb") as output:
+        while chunk := await file.read(1024 * 1024):
+            total_size += len(chunk)
+            if total_size > 20 * 1024 * 1024:
+                absolute_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="图片不能超过 20 MB")
+            output.write(chunk)
+    now = utc_now()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO media_assets
+                (id, project_id, episode_number, shot_number, asset_type,
+                 file_name, relative_path, mime_type, status, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, 'image', ?, ?, ?, 'uploaded', '{}', ?)
+            """,
+            (
+                asset_id, project_id, episode_number, shot_number, safe_name,
+                str(relative_path).replace("\\", "/"), file.content_type, now,
+            ),
+        )
+        row = connection.execute(
+            "SELECT * FROM media_assets WHERE id = ?", (asset_id,)
+        ).fetchone()
+    return row_to_media_asset(row)
+
+
+@app.get(
+    "/api/projects/{project_id}/scripts/{episode_number}/storyboard/{shot_number}/assets",
+    response_model=list[MediaAsset],
+)
+def list_shot_assets(
+    project_id: str, episode_number: int, shot_number: int
+) -> list[MediaAsset]:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM media_assets
+            WHERE project_id = ? AND episode_number = ? AND shot_number = ?
+            ORDER BY created_at DESC
+            """,
+            (project_id, episode_number, shot_number),
+        ).fetchall()
+    return [row_to_media_asset(row) for row in rows]
+
+
+@app.post(
+    "/api/projects/{project_id}/scripts/{episode_number}/storyboard/{shot_number}/generate-image",
+    response_model=GenerationTask,
+    status_code=201,
+)
+def queue_image_generation(
+    project_id: str, episode_number: int, shot_number: int
+) -> GenerationTask:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        task_id = uuid4().hex
+        connection.execute(
+            """
+            INSERT INTO generation_tasks
+                (id, project_id, episode_number, shot_number, task_type,
+                 status, progress, error_message, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'image_generation', 'queued', 0, '', ?, ?)
+            """,
+            (task_id, project_id, episode_number, shot_number, now, now),
+        )
+        row = connection.execute(
+            "SELECT * FROM generation_tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+    return row_to_generation_task(row)
+
+
+@app.get("/api/projects/{project_id}/generation-tasks", response_model=list[GenerationTask])
+def list_generation_tasks(project_id: str) -> list[GenerationTask]:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM generation_tasks
+            WHERE project_id = ? ORDER BY created_at DESC
+            """,
+            (project_id,),
+        ).fetchall()
+    return [row_to_generation_task(row) for row in rows]
+

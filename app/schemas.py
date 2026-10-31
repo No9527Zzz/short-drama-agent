@@ -230,3 +230,31 @@ class StoryboardGenerationSummary(BaseModel):
     total_duration_seconds: int
     status: str
 
+
+
+class MediaAsset(BaseModel):
+    id: str
+    project_id: str
+    episode_number: int
+    shot_number: int
+    asset_type: str
+    file_name: str
+    relative_path: str
+    mime_type: str
+    status: str
+    metadata: dict
+    created_at: str
+
+
+class GenerationTask(BaseModel):
+    id: str
+    project_id: str
+    episode_number: int
+    shot_number: int
+    task_type: str
+    status: str
+    progress: int
+    error_message: str
+    created_at: str
+    updated_at: str
+

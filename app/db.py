@@ -135,6 +135,7 @@ def init_db() -> None:
             """
         )
     init_storyboard_tables()
+    init_media_tables()
 
 
 @contextmanager
@@ -188,6 +189,45 @@ def init_storyboard_tables() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_shots_storyboard
                 ON shots(storyboard_id, shot_number);
+            """
+        )
+
+
+def init_media_tables() -> None:
+    with get_connection() as connection:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS media_assets (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                episode_number INTEGER NOT NULL,
+                shot_number INTEGER NOT NULL,
+                asset_type TEXT NOT NULL DEFAULT 'image',
+                file_name TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                mime_type TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'uploaded',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_media_assets_shot
+                ON media_assets(project_id, episode_number, shot_number);
+            CREATE TABLE IF NOT EXISTS generation_tasks (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                episode_number INTEGER NOT NULL,
+                shot_number INTEGER NOT NULL,
+                task_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                progress INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_generation_tasks_project
+                ON generation_tasks(project_id, status, created_at);
             """
         )
 

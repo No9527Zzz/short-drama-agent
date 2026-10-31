@@ -80,3 +80,9 @@ button.secondary { background: #eef1ff; color: #4f5db8; }
 .shot-card h4 { margin: 0 0 12px; font-size: 16px; }
 .shot-card h4 span { margin-left: 8px; color: #687189; font-size: 12px; font-weight: 400; }
 
+
+.asset-upload { display: grid; grid-template-columns: 180px 1fr auto; align-items: end; gap: 12px; margin-top: 20px; padding-top: 18px; border-top: 1px solid #edf0f6; }
+.uploaded-assets { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.uploaded-asset { color: #5666d9; text-decoration: none; border: 1px solid #dce1ec; padding: 7px 10px; border-radius: 8px; font-size: 13px; }
+@media (max-width: 700px) { .asset-upload { grid-template-columns: 1fr; } }
+

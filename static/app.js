@@ -545,3 +545,61 @@ document.querySelector("#generate-storyboard").addEventListener("click", async (
   }
 });
 
+
+
+async function loadShotAssets() {
+  const episode = document.querySelector("#script-select").value;
+  const shot = document.querySelector("#asset-shot-select").value;
+  if (!episode || !shot || !selectedProject) return;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" + episode + "/storyboard/" + shot + "/assets");
+  const assets = await response.json();
+  document.querySelector("#asset-list").innerHTML = assets.length
+    ? assets.map((asset) => {
+      const mediaPath = asset.relative_path.replace(/^media\//, "");
+      return '<a class="uploaded-asset" href="/media/' + mediaPath + '" target="_blank">' +
+        escapeHtml(asset.file_name) + '</a>';
+    }).join("")
+    : '<span class="muted">该镜头还没有图片素材</span>';
+}
+
+function refreshAssetShotSelect() {
+  const cards = [...document.querySelectorAll(".shot-card")];
+  const select = document.querySelector("#asset-shot-select");
+  if (!select) return;
+  select.innerHTML = cards.map((card) =>
+    '<option value="' + card.dataset.shot + '">镜头 ' + card.dataset.shot + '</option>').join("");
+  loadShotAssets().catch(() => {});
+}
+
+document.querySelector("#script-select").addEventListener("change", () => {
+  setTimeout(refreshAssetShotSelect, 150);
+});
+document.querySelector("#generate-storyboard").addEventListener("click", () => {
+  setTimeout(refreshAssetShotSelect, 300);
+});
+document.querySelector("#asset-shot-select").addEventListener("change", () => {
+  loadShotAssets().catch(() => {});
+});
+document.querySelector("#upload-asset").addEventListener("click", async () => {
+  const file = document.querySelector("#asset-file").files[0];
+  const episode = document.querySelector("#script-select").value;
+  const shot = document.querySelector("#asset-shot-select").value;
+  const message = document.querySelector("#script-message");
+  if (!file || !episode || !shot) {
+    message.style.color = "#b03a4b";
+    message.textContent = "请选择图片和镜头";
+    return;
+  }
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" +
+    episode + "/storyboard/" + shot + "/assets", { method: "POST", body: formData });
+  const data = await response.json();
+  message.style.color = response.ok ? "#217c48" : "#b03a4b";
+  message.textContent = response.ok ? "图片上传成功" : (data.detail || "图片上传失败");
+  if (response.ok) {
+    document.querySelector("#asset-file").value = "";
+    await loadShotAssets();
+  }
+});
+

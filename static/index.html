@@ -112,6 +112,12 @@
         <div class="section-heading"><div><p class="eyebrow">STORYBOARD</p><h3>本集分镜</h3></div><span id="storyboard-meta" class="pill"></span></div>
         <p class="muted">镜头总时长必须保持 60 秒。生成后可以逐镜头修改画面、动作和对白。</p>
         <div id="shot-list" class="shot-list"></div>
+        <div class="asset-upload">
+          <label>选择镜头<select id="asset-shot-select"></select></label>
+          <label>上传关键画面<input id="asset-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+          <button id="upload-asset" type="button" class="secondary">上传图片</button>
+          <div id="asset-list" class="uploaded-assets"></div>
+        </div>
       </section>
     </section>
     <section id="planning" class="card hidden">
@@ -143,6 +149,7 @@
   <script src="/static/app.js"></script>
 </body>
 </html>
+
 
 
 
