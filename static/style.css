@@ -51,3 +51,19 @@ button.secondary { background: #eef1ff; color: #4f5db8; }
   .source-grid { grid-template-columns: 1fr; }
 }
 
+
+.asset-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.asset-columns h3, .subheading { margin: 0 0 10px; font-size: 15px; }
+.asset-list { display: grid; gap: 8px; }
+.asset-item { display: grid; gap: 4px; border: 1px solid #edf0f6; border-radius: 10px; padding: 10px 12px; background: #fbfcff; }
+.asset-item span { color: #687189; font-size: 13px; }
+.subheading { margin-top: 24px; }
+.script-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; max-height: 420px; overflow: auto; }
+.script-item { border: 1px solid #edf0f6; border-radius: 10px; padding: 10px 12px; }
+.script-item span { color: #5666d9; font-size: 12px; font-weight: 700; }
+.script-item strong { display: block; margin-top: 4px; }
+.script-item p { margin: 6px 0 0; color: #687189; font-size: 13px; }
+@media (max-width: 700px) {
+  .asset-columns { grid-template-columns: 1fr; }
+}
+

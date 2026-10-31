@@ -55,11 +55,23 @@
       </div>
       <div class="action-row">
         <button id="save-source">保存原始内容</button>
-        <button id="generate-plan" class="secondary">生成 80 集整剧规划</button>
+        <button id="generate-plan" class="secondary">生成 80 集整剧规划</button><button id="parse-source" class="secondary">解析角色、场景和剧本</button>
       </div>
       <p id="source-message" class="message" role="status"></p>
     </section>
 
+    <section id="parsed-assets" class="card hidden">
+      <div class="section-heading">
+        <div><p class="eyebrow">STRUCTURE</p><h2>解析结果</h2></div>
+        <span id="parse-meta" class="pill"></span>
+      </div>
+      <div class="asset-columns">
+        <div><h3>角色</h3><div id="characters" class="asset-list"></div></div>
+        <div><h3>场景</h3><div id="locations" class="asset-list"></div></div>
+      </div>
+      <h3 class="subheading">单集剧本草稿</h3>
+      <div id="scripts" class="script-list"></div>
+    </section>
     <section id="planning" class="card hidden">
       <div class="section-heading">
         <div><p class="eyebrow">PLANNING</p><h2>整剧规划</h2></div>
@@ -89,4 +101,5 @@
   <script src="/static/app.js"></script>
 </body>
 </html>
+
 

@@ -79,3 +79,70 @@ class PlanningSummary(BaseModel):
     source_version: int
     status: str
 
+
+
+class CharacterAsset(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    description: str
+    role_type: str
+    voice_name: str
+    reference_image_path: str
+    version: int
+    is_current: bool
+    created_at: str
+    updated_at: str
+
+
+class LocationAsset(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    description: str
+    time_of_day: str
+    reference_image_path: str
+    version: int
+    is_current: bool
+    created_at: str
+    updated_at: str
+
+
+class EpisodeScript(BaseModel):
+    id: str
+    project_id: str
+    episode_number: int
+    title: str
+    synopsis: str
+    dialogue_text: str
+    status: PlanStatus
+    script_version: int
+    is_current: bool
+    created_at: str
+    updated_at: str
+
+
+class ScriptScene(BaseModel):
+    id: str
+    script_id: str
+    project_id: str
+    episode_number: int
+    scene_number: int
+    location_name: str
+    time_of_day: str
+    character_names: list[str]
+    action_text: str
+    dialogue_text: str
+    source_text: str
+    created_at: str
+    updated_at: str
+
+
+class ParseSummary(BaseModel):
+    project_id: str
+    source_version: int
+    character_count: int
+    location_count: int
+    scene_count: int
+    script_count: int
+

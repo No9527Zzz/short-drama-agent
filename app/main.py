@@ -325,3 +325,216 @@ def update_episode_plan(
         ).fetchone()
     return row_to_plan(row)
 
+
+
+import json
+from .parser import parse_source
+from .schemas import (
+    CharacterAsset,
+    EpisodeScript,
+    LocationAsset,
+    ParseSummary,
+    ScriptScene,
+)
+
+
+def row_to_character(row: sqlite3.Row) -> CharacterAsset:
+    data = dict(row)
+    data["is_current"] = bool(data["is_current"])
+    return CharacterAsset(**data)
+
+
+def row_to_location(row: sqlite3.Row) -> LocationAsset:
+    data = dict(row)
+    data["is_current"] = bool(data["is_current"])
+    return LocationAsset(**data)
+
+
+def row_to_script(row: sqlite3.Row) -> EpisodeScript:
+    data = dict(row)
+    data["is_current"] = bool(data["is_current"])
+    return EpisodeScript(**data)
+
+
+def row_to_scene(row: sqlite3.Row) -> ScriptScene:
+    data = dict(row)
+    data["character_names"] = json.loads(data["character_names_json"])
+    del data["character_names_json"]
+    return ScriptScene(**data)
+
+
+@app.post("/api/projects/{project_id}/parse", response_model=ParseSummary)
+def parse_project_source(project_id: str) -> ParseSummary:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        source = connection.execute(
+            """
+            SELECT * FROM source_documents
+            WHERE project_id = ? AND is_current = 1
+            ORDER BY version DESC LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        if source is None:
+            raise HTTPException(status_code=400, detail="请先导入原始内容")
+        parsed = parse_source(source["content"])
+        connection.execute(
+            "UPDATE characters SET is_current = 0 WHERE project_id = ?",
+            (project_id,),
+        )
+        connection.execute(
+            "UPDATE locations SET is_current = 0 WHERE project_id = ?",
+            (project_id,),
+        )
+        for character in parsed.characters:
+            connection.execute(
+                """
+                INSERT INTO characters
+                    (id, project_id, name, description, role_type, voice_name,
+                     reference_image_path, version, is_current, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, '', '', 1, 1, ?, ?)
+                """,
+                (
+                    uuid4().hex, project_id, character.name, character.description,
+                    character.role_type, now, now,
+                ),
+            )
+        for location in parsed.locations:
+            connection.execute(
+                """
+                INSERT INTO locations
+                    (id, project_id, name, description, time_of_day,
+                     reference_image_path, version, is_current, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, '', 1, 1, ?, ?)
+                """,
+                (
+                    uuid4().hex, project_id, location.name, location.description,
+                    location.time_of_day, now, now,
+                ),
+            )
+        connection.execute(
+            "UPDATE episode_scripts SET is_current = 0 WHERE project_id = ?",
+            (project_id,),
+        )
+        plans = connection.execute(
+            """
+            SELECT * FROM episode_plans
+            WHERE project_id = ? AND is_current = 1
+            ORDER BY episode_number
+            """,
+            (project_id,),
+        ).fetchall()
+        script_rows = []
+        for plan in plans:
+            script_id = uuid4().hex
+            connection.execute(
+                """
+                INSERT INTO episode_scripts
+                    (id, project_id, episode_number, title, synopsis, dialogue_text,
+                     status, script_version, is_current, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, '', 'draft', 1, 1, ?, ?)
+                """,
+                (
+                    script_id, project_id, plan["episode_number"], plan["title"],
+                    plan["plot_summary"], now, now,
+                ),
+            )
+            script_rows.append((script_id, plan["episode_number"], plan["plot_summary"]))
+        connection.execute(
+            "DELETE FROM script_scenes WHERE project_id = ?", (project_id,)
+        )
+        template_scene = parsed.scenes[0]
+        for script_id, episode_number, summary in script_rows:
+            scene = parsed.scenes[(episode_number - 1) % len(parsed.scenes)]
+            source_text = scene.source_text or summary
+            connection.execute(
+                """
+                INSERT INTO script_scenes
+                    (id, script_id, project_id, episode_number, scene_number,
+                     location_name, time_of_day, character_names_json, action_text,
+                     dialogue_text, source_text, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    uuid4().hex, script_id, project_id, episode_number,
+                    scene.location_name or template_scene.location_name,
+                    scene.time_of_day,
+                    json.dumps(scene.character_names, ensure_ascii=False),
+                    scene.action_text or "待补充分镜动作。",
+                    scene.dialogue_text,
+                    source_text,
+                    now, now,
+                ),
+            )
+        connection.execute(
+            "UPDATE projects SET status = 'parsed', updated_at = ? WHERE id = ?",
+            (now, project_id),
+        )
+    return ParseSummary(
+        project_id=project_id,
+        source_version=source["version"],
+        character_count=len(parsed.characters),
+        location_count=len(parsed.locations),
+        scene_count=len(parsed.scenes),
+        script_count=len(script_rows),
+    )
+
+
+@app.get("/api/projects/{project_id}/characters", response_model=list[CharacterAsset])
+def list_characters(project_id: str) -> list[CharacterAsset]:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM characters
+            WHERE project_id = ? AND is_current = 1 ORDER BY name
+            """,
+            (project_id,),
+        ).fetchall()
+    return [row_to_character(row) for row in rows]
+
+
+@app.get("/api/projects/{project_id}/locations", response_model=list[LocationAsset])
+def list_locations(project_id: str) -> list[LocationAsset]:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM locations
+            WHERE project_id = ? AND is_current = 1 ORDER BY name
+            """,
+            (project_id,),
+        ).fetchall()
+    return [row_to_location(row) for row in rows]
+
+
+@app.get("/api/projects/{project_id}/scripts", response_model=list[EpisodeScript])
+def list_scripts(project_id: str) -> list[EpisodeScript]:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM episode_scripts
+            WHERE project_id = ? AND is_current = 1
+            ORDER BY episode_number
+            """,
+            (project_id,),
+        ).fetchall()
+    return [row_to_script(row) for row in rows]
+
+
+@app.get("/api/projects/{project_id}/scripts/{episode_number}/scenes", response_model=list[ScriptScene])
+def list_script_scenes(project_id: str, episode_number: int) -> list[ScriptScene]:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM script_scenes
+            WHERE project_id = ? AND episode_number = ?
+            ORDER BY scene_number
+            """,
+            (project_id, episode_number),
+        ).fetchall()
+    return [row_to_scene(row) for row in rows]
+

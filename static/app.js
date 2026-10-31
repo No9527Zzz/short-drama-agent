@@ -228,3 +228,63 @@ loadProjects().catch((error) => {
   projectList.innerHTML = '<p class="message">' + escapeHtml(error.message) + '</p>';
 });
 
+
+
+const parsedAssets = document.querySelector("#parsed-assets");
+const parseMessage = document.querySelector("#source-message");
+
+async function loadParsedAssets() {
+  if (!selectedProject) return;
+  const [charactersResponse, locationsResponse, scriptsResponse] = await Promise.all([
+    fetch("/api/projects/" + selectedProject.id + "/characters"),
+    fetch("/api/projects/" + selectedProject.id + "/locations"),
+    fetch("/api/projects/" + selectedProject.id + "/scripts"),
+  ]);
+  if (!charactersResponse.ok || !locationsResponse.ok || !scriptsResponse.ok) {
+    throw new Error("无法加载解析结果");
+  }
+  const characters = await charactersResponse.json();
+  const locations = await locationsResponse.json();
+  const scripts = await scriptsResponse.json();
+  if (!characters.length && !locations.length && !scripts.length) {
+    parsedAssets.classList.add("hidden");
+    return;
+  }
+  parsedAssets.classList.remove("hidden");
+  document.querySelector("#parse-meta").textContent =
+    characters.length + " 个角色 · " + locations.length + " 个场景 · " +
+    scripts.length + " 集剧本草稿";
+  document.querySelector("#characters").innerHTML = characters.length
+    ? characters.map((item) => '<div class="asset-item"><strong>' +
+      escapeHtml(item.name) + '</strong><span>' +
+      escapeHtml(item.description || "待补充设定") + '</span></div>').join("")
+    : '<p class="muted">暂无角色</p>';
+  document.querySelector("#locations").innerHTML = locations.length
+    ? locations.map((item) => '<div class="asset-item"><strong>' +
+      escapeHtml(item.name) + '</strong><span>' +
+      escapeHtml(item.time_of_day || item.description || "待补充设定") + '</span></div>').join("")
+    : '<p class="muted">暂无场景</p>';
+  document.querySelector("#scripts").innerHTML = scripts.length
+    ? scripts.map((item) => '<div class="script-item"><span>第' +
+      item.episode_number + '集</span><strong>' + escapeHtml(item.title) +
+      '</strong><p>' + escapeHtml(item.synopsis || "待补充单集剧本") + '</p></div>').join("")
+    : '<p class="muted">请先生成整剧规划</p>';
+}
+
+document.querySelector("#parse-source").addEventListener("click", async () => {
+  if (!selectedProject) return;
+  try {
+    const response = await fetch("/api/projects/" + selectedProject.id + "/parse", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "解析失败");
+    parseMessage.style.color = "#217c48";
+    parseMessage.textContent = "解析完成：识别 " + data.character_count + " 个角色、" +
+      data.location_count + " 个场景，生成 " + data.script_count + " 集剧本草稿";
+    await loadParsedAssets();
+    await loadProjects();
+  } catch (error) {
+    parseMessage.style.color = "#b03a4b";
+    parseMessage.textContent = error.message;
+  }
+});
+

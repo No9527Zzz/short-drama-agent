@@ -66,6 +66,72 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_episode_plan_project
                 ON episode_plans(project_id, is_current, episode_number);
+            CREATE TABLE IF NOT EXISTS characters (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                role_type TEXT NOT NULL DEFAULT 'supporting',
+                voice_name TEXT NOT NULL DEFAULT '',
+                reference_image_path TEXT NOT NULL DEFAULT '',
+                version INTEGER NOT NULL DEFAULT 1,
+                is_current INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_characters_project
+                ON characters(project_id, is_current);
+            CREATE TABLE IF NOT EXISTS locations (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                time_of_day TEXT NOT NULL DEFAULT '',
+                reference_image_path TEXT NOT NULL DEFAULT '',
+                version INTEGER NOT NULL DEFAULT 1,
+                is_current INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_locations_project
+                ON locations(project_id, is_current);
+            CREATE TABLE IF NOT EXISTS episode_scripts (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                episode_number INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                synopsis TEXT NOT NULL DEFAULT '',
+                dialogue_text TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'draft',
+                script_version INTEGER NOT NULL DEFAULT 1,
+                is_current INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_episode_scripts_project
+                ON episode_scripts(project_id, is_current, episode_number);
+            CREATE TABLE IF NOT EXISTS script_scenes (
+                id TEXT PRIMARY KEY,
+                script_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                episode_number INTEGER NOT NULL,
+                scene_number INTEGER NOT NULL,
+                location_name TEXT NOT NULL DEFAULT '',
+                time_of_day TEXT NOT NULL DEFAULT '',
+                character_names_json TEXT NOT NULL DEFAULT '[]',
+                action_text TEXT NOT NULL DEFAULT '',
+                dialogue_text TEXT NOT NULL DEFAULT '',
+                source_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (script_id) REFERENCES episode_scripts(id),
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_script_scenes_script
+                ON script_scenes(script_id, scene_number);
             """
         )
 
