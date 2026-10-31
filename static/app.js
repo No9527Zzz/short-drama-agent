@@ -603,3 +603,55 @@ document.querySelector("#upload-asset").addEventListener("click", async () => {
   }
 });
 
+
+
+async function pollTask(taskId, message) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const response = await fetch("/api/projects/" + selectedProject.id + "/generation-tasks");
+    const tasks = await response.json();
+    const task = tasks.find((item) => item.id === taskId);
+    if (task && task.status === "succeeded") {
+      message.style.color = "#217c48";
+      message.textContent = "视频合成完成";
+      await loadExports();
+      return;
+    }
+    if (task && task.status === "failed") {
+      message.style.color = "#b03a4b";
+      message.textContent = task.error_message || "视频合成失败";
+      return;
+    }
+    if (task) message.textContent = "后台合成中：" + task.progress + "%";
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  message.style.color = "#b03a4b";
+  message.textContent = "任务仍在后台运行，可稍后刷新查看";
+}
+
+async function loadExports() {
+  if (!selectedProject) return;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/exports");
+  const exports = await response.json();
+  document.querySelector("#export-list").innerHTML = exports.map((asset) => {
+    const path = asset.relative_path.replace(/^media\//, "");
+    return '<a class="uploaded-asset" href="/media/' + path + '" target="_blank">' +
+      '打开 ' + escapeHtml(asset.file_name) + '</a>';
+  }).join("");
+}
+
+document.querySelector("#compose-episode").addEventListener("click", async () => {
+  if (!selectedProject) return;
+  const episode = document.querySelector("#script-select").value;
+  const message = document.querySelector("#script-message");
+  const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" + episode + "/storyboard/compose", { method: "POST" });
+  const task = await response.json();
+  if (!response.ok) {
+    message.style.color = "#b03a4b";
+    message.textContent = task.detail || "无法创建合成任务";
+    return;
+  }
+  message.style.color = "#5666d9";
+  message.textContent = "合成任务已排队";
+  pollTask(task.id, message);
+});
+

@@ -1062,3 +1062,63 @@ def list_generation_tasks(project_id: str) -> list[GenerationTask]:
         ).fetchall()
     return [row_to_generation_task(row) for row in rows]
 
+
+
+from .worker import start_worker
+
+
+@app.on_event("startup")
+def start_background_worker() -> None:
+    start_worker()
+
+
+@app.post(
+    "/api/projects/{project_id}/scripts/{episode_number}/storyboard/compose",
+    response_model=GenerationTask,
+    status_code=201,
+)
+def queue_episode_composition(
+    project_id: str, episode_number: int
+) -> GenerationTask:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        storyboard = connection.execute(
+            """
+            SELECT id FROM storyboards
+            WHERE project_id = ? AND episode_number = ? AND is_current = 1
+            """,
+            (project_id, episode_number),
+        ).fetchone()
+        if storyboard is None:
+            raise HTTPException(status_code=400, detail="请先生成本集分镜")
+        task_id = uuid4().hex
+        connection.execute(
+            """
+            INSERT INTO generation_tasks
+                (id, project_id, episode_number, shot_number, task_type,
+                 status, progress, error_message, created_at, updated_at)
+            VALUES (?, ?, ?, 0, 'compose_episode', 'queued', 0, '', ?, ?)
+            """,
+            (task_id, project_id, episode_number, now, now),
+        )
+        row = connection.execute(
+            "SELECT * FROM generation_tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+    return row_to_generation_task(row)
+
+
+@app.get("/api/projects/{project_id}/exports", response_model=list[MediaAsset])
+def list_exports(project_id: str) -> list[MediaAsset]:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM media_assets
+            WHERE project_id = ? AND asset_type IN ('video', 'subtitle')
+            ORDER BY created_at DESC
+            """,
+            (project_id,),
+        ).fetchall()
+    return [row_to_media_asset(row) for row in rows]
+
