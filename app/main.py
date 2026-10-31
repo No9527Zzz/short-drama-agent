@@ -1179,3 +1179,105 @@ def get_generation_task(project_id: str, task_id: str) -> GenerationTask:
         raise HTTPException(status_code=404, detail="任务不存在")
     return row_to_generation_task(row)
 
+
+
+@app.post(
+    "/api/projects/{project_id}/scripts/{episode_number}/storyboard/{shot_number}/audio",
+    response_model=MediaAsset,
+    status_code=201,
+)
+async def upload_shot_audio(
+    project_id: str,
+    episode_number: int,
+    shot_number: int,
+    file: UploadFile = File(...),
+) -> MediaAsset:
+    allowed_types = {"audio/wav", "audio/x-wav", "audio/mpeg", "audio/ogg", "audio/mp4"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=415, detail="仅支持 WAV、MP3、OGG 或 M4A 音频")
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        shot = connection.execute(
+            """
+            SELECT id FROM shots
+            WHERE project_id = ? AND episode_number = ? AND shot_number = ?
+              AND storyboard_id IN (SELECT id FROM storyboards WHERE is_current = 1)
+            """,
+            (project_id, episode_number, shot_number),
+        ).fetchone()
+        if shot is None:
+            raise HTTPException(status_code=404, detail="镜头不存在")
+    safe_name = Path(file.filename or "voice").name
+    extension = Path(safe_name).suffix.lower() or ".audio"
+    asset_id = uuid4().hex
+    file_name = asset_id + extension
+    relative_path = Path("media") / project_id / f"episode_{episode_number:03d}" / f"shot_{shot_number:02d}" / file_name
+    absolute_path = ROOT / "data" / relative_path
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
+    total_size = 0
+    with absolute_path.open("wb") as output:
+        while chunk := await file.read(1024 * 1024):
+            total_size += len(chunk)
+            if total_size > 50 * 1024 * 1024:
+                absolute_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="音频不能超过 50 MB")
+            output.write(chunk)
+    now = utc_now()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO media_assets
+                (id, project_id, episode_number, shot_number, asset_type,
+                 file_name, relative_path, mime_type, status, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, 'audio', ?, ?, ?, 'uploaded', '{}', ?)
+            """,
+            (
+                asset_id, project_id, episode_number, shot_number, safe_name,
+                str(relative_path).replace("\\", "/"), file.content_type, now,
+            ),
+        )
+        row = connection.execute(
+            "SELECT * FROM media_assets WHERE id = ?", (asset_id,)
+        ).fetchone()
+    return row_to_media_asset(row)
+
+
+@app.post(
+    "/api/projects/{project_id}/scripts/{episode_number}/tts",
+    response_model=list[GenerationTask],
+    status_code=201,
+)
+def queue_episode_tts(project_id: str, episode_number: int) -> list[GenerationTask]:
+    now = utc_now()
+    tasks = []
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        shots = connection.execute(
+            """
+            SELECT shot_number, dialogue_text FROM shots
+            WHERE project_id = ? AND episode_number = ?
+              AND storyboard_id IN (SELECT id FROM storyboards WHERE is_current = 1)
+              AND TRIM(dialogue_text) != ''
+            ORDER BY shot_number
+            """,
+            (project_id, episode_number),
+        ).fetchall()
+        if not shots:
+            raise HTTPException(status_code=400, detail="本集没有可配音对白")
+        for shot in shots:
+            task_id = uuid4().hex
+            connection.execute(
+                """
+                INSERT INTO generation_tasks
+                    (id, project_id, episode_number, shot_number, task_type,
+                     status, progress, error_message, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'speech_generation', 'queued', 0, '', ?, ?)
+                """,
+                (task_id, project_id, episode_number, shot["shot_number"], now, now),
+            )
+            row = connection.execute(
+                "SELECT * FROM generation_tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            tasks.append(row_to_generation_task(row))
+    return tasks
+

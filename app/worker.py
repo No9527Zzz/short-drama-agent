@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .db import ROOT, get_connection, utc_now
+from .providers import get_speech_synthesizer
 
 _worker_started = False
 _worker_lock = threading.Lock()
@@ -116,12 +117,64 @@ def process_task(task: dict) -> None:
         elif task["task_type"] == "image_generation":
             raise RuntimeError("尚未配置本地图片模型适配器，请先上传镜头图片")
         elif task["task_type"] == "speech_generation":
-            raise RuntimeError("尚未配置本地 TTS Provider，请先上传音频")
+            generate_speech(task)
         else:
             raise RuntimeError(f"不支持的任务类型：{task['task_type']}")
     except Exception as exc:
         update_task(task["id"], "failed", 0, str(exc))
 
+
+def generate_speech(task: dict) -> None:
+    project_id = task["project_id"]
+    episode_number = task["episode_number"]
+    shot_number = task["shot_number"]
+    with get_connection() as connection:
+        shot = connection.execute(
+            """
+            SELECT dialogue_text FROM shots
+            WHERE project_id = ? AND episode_number = ? AND shot_number = ?
+              AND storyboard_id IN (SELECT id FROM storyboards WHERE is_current = 1)
+            """,
+            (project_id, episode_number, shot_number),
+        ).fetchone()
+    if shot is None or not shot["dialogue_text"].strip():
+        raise RuntimeError("该镜头没有对白")
+    output_dir = ROOT / "data" / "media" / project_id / f"episode_{episode_number:03d}" / f"shot_{shot_number:02d}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{task['id']}.wav"
+    get_speech_synthesizer().synthesize(shot["dialogue_text"].strip(), "", output_path)
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO media_assets
+                (id, project_id, episode_number, shot_number, asset_type,
+                 file_name, relative_path, mime_type, status, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, 'audio', ?, ?, 'audio/wav', 'generated', '{}', ?)
+            """,
+            (
+                task["id"] + "-audio", project_id, episode_number, shot_number,
+                output_path.name,
+                str(output_path.relative_to(ROOT / "data")).replace("\\", "/"),
+                utc_now(),
+            ),
+        )
+    update_task(task["id"], "succeeded", 100)
+
+
+def get_audio_assets(connection, project_id: str, episode_number: int) -> dict[int, str]:
+    rows = connection.execute(
+        """
+        SELECT shot_number, relative_path FROM media_assets
+        WHERE project_id = ? AND episode_number = ? AND shot_number > 0
+          AND asset_type = 'audio' AND status IN ('uploaded', 'generated')
+        ORDER BY created_at
+        """,
+        (project_id, episode_number),
+    ).fetchall()
+    assets = {}
+    for row in rows:
+        assets.setdefault(row["shot_number"], str(ROOT / "data" / row["relative_path"]))
+    return assets
 
 def get_image_assets(connection, project_id: str, episode_number: int) -> dict[int, str]:
     rows = connection.execute(
@@ -184,6 +237,7 @@ def compose_episode(task: dict) -> None:
             (storyboard["id"],),
         ).fetchall()
         images = get_image_assets(connection, project_id, episode_number)
+        audios = get_audio_assets(connection, project_id, episode_number)
     if not shots:
         raise RuntimeError("该集没有镜头")
     missing = [shot["shot_number"] for shot in shots if shot["shot_number"] not in images]
@@ -210,10 +264,15 @@ def compose_episode(task: dict) -> None:
             )
             command = [
                 binary, "-y", "-loop", "1", "-i", images[shot["shot_number"]],
-                "-frames:v", str(frames), "-vf", filter_expression,
-                "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                str(clip_path),
             ]
+            if shot["shot_number"] in audios:
+                command += ["-i", audios[shot["shot_number"]]]
+            command += ["-frames:v", str(frames), "-vf", filter_expression]
+            if shot["shot_number"] in audios:
+                command += ["-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-c:a", "aac", "-shortest"]
+            else:
+                command += ["-an", "-c:v", "libx264"]
+            command += ["-pix_fmt", "yuv420p", str(clip_path)]
             result = subprocess.run(command, check=False, capture_output=True, text=True)
             if result.returncode != 0:
                 raise RuntimeError(result.stderr[-1200:])
@@ -239,7 +298,7 @@ def compose_episode(task: dict) -> None:
             now = utc_now()
             connection.execute(
                 """
-                INSERT INTO media_assets
+                INSERT OR IGNORE INTO media_assets
                     (id, project_id, episode_number, shot_number, asset_type,
                      file_name, relative_path, mime_type, status, metadata_json, created_at)
                 VALUES (?, ?, ?, 0, 'video', ?, ?, 'video/mp4', 'generated', ?, ?)
@@ -255,4 +314,8 @@ def compose_episode(task: dict) -> None:
         update_task(task["id"], "succeeded", 100)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+
+
 
