@@ -12,36 +12,24 @@
       <div>
         <p class="eyebrow">SHORT DRAMA AGENT · LOCAL</p>
         <h1>短剧项目工作台</h1>
-        <p class="muted">创建项目，逐步完成整剧规划、角色设定、分镜和成片制作。</p>
+        <p class="muted">从原始内容开始，逐步完成整剧规划、角色设定、分镜和成片制作。</p>
       </div>
       <span id="health" class="status">检查服务中…</span>
     </header>
 
     <section class="card">
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">PROJECT</p>
-          <h2>新建项目</h2>
-        </div>
+        <div><p class="eyebrow">PROJECT</p><h2>新建项目</h2></div>
         <span class="pill">80 集 · 每集 60 秒 · 9:16</span>
       </div>
       <form id="project-form">
-        <label>
-          项目名称
-          <input id="name" name="name" required maxlength="120" placeholder="例如：重生后我成了首席编剧">
-        </label>
-        <label>
-          内容入口
-          <select id="source_type" name="source_type">
-            <option value="idea">创意 / 主线故事</option>
-            <option value="complete_script">完整剧本</option>
-            <option value="novel">小说原文</option>
-          </select>
-        </label>
-        <label class="wide">
-          项目简介
-          <textarea id="description" name="description" maxlength="2000" placeholder="记录故事方向、风格和制作约束"></textarea>
-        </label>
+        <label>项目名称<input id="name" required maxlength="120" placeholder="例如：重生后我成了首席编剧"></label>
+        <label>内容入口<select id="source_type">
+          <option value="idea">创意 / 主线故事</option>
+          <option value="complete_script">完整剧本</option>
+          <option value="novel">小说原文</option>
+        </select></label>
+        <label class="wide">项目简介<textarea id="description" maxlength="2000" placeholder="记录故事方向、风格和制作约束"></textarea></label>
         <button type="submit">创建项目</button>
       </form>
       <p id="form-message" class="message" role="status"></p>
@@ -49,17 +37,56 @@
 
     <section class="card">
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">WORKSPACE</p>
-          <h2>项目列表</h2>
-        </div>
+        <div><p class="eyebrow">WORKSPACE</p><h2>项目列表</h2></div>
         <button id="refresh" class="secondary">刷新</button>
       </div>
-      <div id="projects" class="projects">
-        <p class="muted">正在加载项目…</p>
+      <div id="projects" class="projects"><p class="muted">正在加载项目…</p></div>
+    </section>
+
+    <section id="workspace" class="card hidden">
+      <div class="section-heading">
+        <div><p class="eyebrow">SOURCE</p><h2 id="selected-project-name">原始内容</h2></div>
+        <span id="selected-project-meta" class="pill"></span>
       </div>
+      <div class="source-grid">
+        <label>标题<input id="source-title" maxlength="200" placeholder="例如：第一版故事原稿"></label>
+        <label>导入文件（.txt / .md）<input id="source-file" type="file" accept=".txt,.md,text/plain"></label>
+        <label class="wide">剧本、小说或故事创意<textarea id="source-content" maxlength="2000000" placeholder="粘贴原始内容，或选择本地文本文件"></textarea></label>
+      </div>
+      <div class="action-row">
+        <button id="save-source">保存原始内容</button>
+        <button id="generate-plan" class="secondary">生成 80 集整剧规划</button>
+      </div>
+      <p id="source-message" class="message" role="status"></p>
+    </section>
+
+    <section id="planning" class="card hidden">
+      <div class="section-heading">
+        <div><p class="eyebrow">PLANNING</p><h2>整剧规划</h2></div>
+        <span id="plan-meta" class="pill"></span>
+      </div>
+      <p class="muted">当前生成的是可编辑的结构化初稿。每集先确认标题、主线事件、冲突和结尾，再进入单集剧本创作。</p>
+      <div id="plan-list" class="plan-list"></div>
+    </section>
+
+    <section id="episode-editor" class="card hidden">
+      <div class="section-heading">
+        <div><p class="eyebrow">EPISODE REVIEW</p><h2 id="editor-title">编辑分集规划</h2></div>
+        <button id="close-editor" class="secondary">关闭</button>
+      </div>
+      <form id="episode-form">
+        <label>集标题<input id="episode-title" required maxlength="200"></label>
+        <label>审核状态<select id="episode-status"><option value="draft">草稿</option><option value="review">待审核</option><option value="approved">已确认</option></select></label>
+        <label class="wide">一句话梗概<textarea id="episode-logline" maxlength="1000"></textarea></label>
+        <label class="wide">剧情摘要<textarea id="episode-summary" maxlength="4000"></textarea></label>
+        <label>核心冲突<textarea id="episode-conflict" maxlength="1000"></textarea></label>
+        <label>结尾落点 / 悬念<textarea id="episode-hook" maxlength="1000"></textarea></label>
+        <button type="submit">保存本集规划</button>
+      </form>
+      <p id="episode-message" class="message" role="status"></p>
     </section>
   </main>
   <script src="/static/app.js"></script>
 </body>
 </html>
+

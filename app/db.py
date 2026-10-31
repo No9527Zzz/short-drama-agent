@@ -35,6 +35,37 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS source_documents (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                is_current INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_source_project
+                ON source_documents(project_id, is_current);
+            CREATE TABLE IF NOT EXISTS episode_plans (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                episode_number INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                logline TEXT NOT NULL DEFAULT '',
+                plot_summary TEXT NOT NULL DEFAULT '',
+                key_conflict TEXT NOT NULL DEFAULT '',
+                ending_hook TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'draft',
+                plan_version INTEGER NOT NULL,
+                is_current INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_episode_plan_project
+                ON episode_plans(project_id, is_current, episode_number);
             """
         )
 
@@ -48,3 +79,4 @@ def get_connection() -> Iterator[sqlite3.Connection]:
         connection.commit()
     finally:
         connection.close()
+
