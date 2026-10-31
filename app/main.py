@@ -698,3 +698,220 @@ def update_script_scene(
         ).fetchone()
     return row_to_scene(row)
 
+
+
+from .schemas import (
+    ShotPlan,
+    ShotPlanUpdate,
+    StoryboardGenerationSummary,
+    StoryboardSummary,
+)
+
+
+def row_to_shot(row: sqlite3.Row) -> ShotPlan:
+    data = dict(row)
+    data["character_names"] = json.loads(data.pop("character_names_json"))
+    return ShotPlan(**data)
+
+
+def build_shot_template(
+    shot_number: int,
+    scene: sqlite3.Row,
+    duration: int,
+) -> tuple[str, str, str]:
+    templates = [
+        ("特写", "缓慢推近", "用特写建立角色当下的情绪和关键细节。"),
+        ("中景", "固定", "展示角色在场景中的动作和关系。"),
+        ("全景", "横向平移", "交代场景空间与人物位置。"),
+        ("近景", "轻微摇镜", "捕捉角色反应，推动本场情绪变化。"),
+        ("双人中景", "跟随", "展示人物互动，让对白和动作保持连贯。"),
+        ("特写", "停留", "留下本场最重要的信息或悬念。"),
+    ]
+    shot_type, camera, visual = templates[(shot_number - 1) % len(templates)]
+    return shot_type, camera, visual
+
+
+@app.post(
+    "/api/projects/{project_id}/scripts/{episode_number}/storyboard/generate",
+    response_model=StoryboardGenerationSummary,
+)
+def generate_storyboard(project_id: str, episode_number: int) -> StoryboardGenerationSummary:
+    if episode_number < 1:
+        raise HTTPException(status_code=422, detail="集数必须大于 0")
+    now = utc_now()
+    durations = [8, 10, 12, 10, 10, 10]
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        script = connection.execute(
+            """
+            SELECT * FROM episode_scripts
+            WHERE project_id = ? AND episode_number = ? AND is_current = 1
+            """,
+            (project_id, episode_number),
+        ).fetchone()
+        if script is None:
+            raise HTTPException(status_code=400, detail="请先解析并确认该集剧本")
+        scenes = connection.execute(
+            """
+            SELECT * FROM script_scenes
+            WHERE project_id = ? AND episode_number = ?
+            ORDER BY scene_number
+            """,
+            (project_id, episode_number),
+        ).fetchall()
+        if not scenes:
+            raise HTTPException(status_code=400, detail="该集还没有场景")
+        latest = connection.execute(
+            """
+            SELECT COALESCE(MAX(storyboard_version), 0) AS version
+            FROM storyboards WHERE project_id = ? AND episode_number = ?
+            """,
+            (project_id, episode_number),
+        ).fetchone()["version"]
+        version = latest + 1
+        connection.execute(
+            """
+            UPDATE storyboards SET is_current = 0
+            WHERE project_id = ? AND episode_number = ?
+            """,
+            (project_id, episode_number),
+        )
+        storyboard_id = uuid4().hex
+        connection.execute(
+            """
+            INSERT INTO storyboards
+                (id, project_id, episode_number, storyboard_version, status,
+                 is_current, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'draft', 1, ?, ?)
+            """,
+            (storyboard_id, project_id, episode_number, version, now, now),
+        )
+        for shot_number, duration in enumerate(durations, start=1):
+            scene = scenes[(shot_number - 1) % len(scenes)]
+            shot_type, camera, visual = build_shot_template(
+                shot_number, scene, duration
+            )
+            characters = json.loads(scene["character_names_json"])
+            connection.execute(
+                """
+                INSERT INTO shots
+                    (id, storyboard_id, project_id, episode_number, shot_number,
+                     scene_number, shot_type, camera, duration_seconds,
+                     visual_description, action_text, dialogue_text,
+                     character_names_json, location_name, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+                """,
+                (
+                    uuid4().hex, storyboard_id, project_id, episode_number,
+                    shot_number, scene["scene_number"], shot_type, camera, duration,
+                    visual, scene["action_text"], scene["dialogue_text"],
+                    json.dumps(characters, ensure_ascii=False), scene["location_name"],
+                    now, now,
+                ),
+            )
+    return StoryboardGenerationSummary(
+        project_id=project_id,
+        episode_number=episode_number,
+        storyboard_version=version,
+        shot_count=len(durations),
+        total_duration_seconds=sum(durations),
+        status="draft",
+    )
+
+
+@app.get(
+    "/api/projects/{project_id}/scripts/{episode_number}/storyboard",
+    response_model=list[ShotPlan],
+)
+def list_storyboard(project_id: str, episode_number: int) -> list[ShotPlan]:
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        storyboard = connection.execute(
+            """
+            SELECT * FROM storyboards
+            WHERE project_id = ? AND episode_number = ? AND is_current = 1
+            ORDER BY storyboard_version DESC LIMIT 1
+            """,
+            (project_id, episode_number),
+        ).fetchone()
+        if storyboard is None:
+            return []
+        rows = connection.execute(
+            """
+            SELECT * FROM shots
+            WHERE storyboard_id = ? ORDER BY shot_number
+            """,
+            (storyboard["id"],),
+        ).fetchall()
+    return [row_to_shot(row) for row in rows]
+
+
+@app.patch(
+    "/api/projects/{project_id}/scripts/{episode_number}/storyboard/{shot_number}",
+    response_model=ShotPlan,
+)
+def update_shot(
+    project_id: str,
+    episode_number: int,
+    shot_number: int,
+    payload: ShotPlanUpdate,
+) -> ShotPlan:
+    now = utc_now()
+    with get_connection() as connection:
+        require_project(connection, project_id)
+        storyboard = connection.execute(
+            """
+            SELECT * FROM storyboards
+            WHERE project_id = ? AND episode_number = ? AND is_current = 1
+            ORDER BY storyboard_version DESC LIMIT 1
+            """,
+            (project_id, episode_number),
+        ).fetchone()
+        if storyboard is None:
+            raise HTTPException(status_code=404, detail="分镜不存在")
+        current = connection.execute(
+            """
+            SELECT * FROM shots
+            WHERE storyboard_id = ? AND shot_number = ?
+            """,
+            (storyboard["id"], shot_number),
+        ).fetchone()
+        if current is None:
+            raise HTTPException(status_code=404, detail="镜头不存在")
+        total = connection.execute(
+            """
+            SELECT COALESCE(SUM(duration_seconds), 0) AS total
+            FROM shots WHERE storyboard_id = ? AND shot_number != ?
+            """,
+            (storyboard["id"], shot_number),
+        ).fetchone()["total"] + payload.duration_seconds
+        if total != 60:
+            raise HTTPException(
+                status_code=422,
+                detail=f"本集镜头总时长必须为 60 秒，当前为 {total} 秒",
+            )
+        connection.execute(
+            """
+            UPDATE shots
+            SET shot_type = ?, camera = ?, duration_seconds = ?,
+                visual_description = ?, action_text = ?, dialogue_text = ?,
+                character_names_json = ?, location_name = ?, status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                payload.shot_type.strip(), payload.camera.strip(),
+                payload.duration_seconds, payload.visual_description.strip(),
+                payload.action_text.strip(), payload.dialogue_text.strip(),
+                json.dumps(payload.character_names, ensure_ascii=False),
+                payload.location_name.strip(), payload.status, now, current["id"],
+            ),
+        )
+        connection.execute(
+            "UPDATE storyboards SET updated_at = ? WHERE id = ?",
+            (now, storyboard["id"]),
+        )
+        row = connection.execute(
+            "SELECT * FROM shots WHERE id = ?", (current["id"],)
+        ).fetchone()
+    return row_to_shot(row)
+

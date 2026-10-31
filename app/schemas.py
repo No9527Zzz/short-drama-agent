@@ -177,3 +177,56 @@ class ScriptSceneUpdate(BaseModel):
     action_text: str = Field(default="", max_length=4000)
     dialogue_text: str = Field(default="", max_length=10000)
 
+
+
+class StoryboardSummary(BaseModel):
+    id: str
+    project_id: str
+    episode_number: int
+    storyboard_version: int
+    status: PlanStatus
+    is_current: bool
+    created_at: str
+    updated_at: str
+
+
+class ShotPlan(BaseModel):
+    id: str
+    storyboard_id: str
+    project_id: str
+    episode_number: int
+    shot_number: int
+    scene_number: int
+    shot_type: str
+    camera: str
+    duration_seconds: int
+    visual_description: str
+    action_text: str
+    dialogue_text: str
+    character_names: list[str]
+    location_name: str
+    status: PlanStatus
+    created_at: str
+    updated_at: str
+
+
+class ShotPlanUpdate(BaseModel):
+    shot_type: str = Field(default="中景", max_length=40)
+    camera: str = Field(default="固定", max_length=120)
+    duration_seconds: int = Field(ge=1, le=60)
+    visual_description: str = Field(default="", max_length=4000)
+    action_text: str = Field(default="", max_length=4000)
+    dialogue_text: str = Field(default="", max_length=10000)
+    character_names: list[str] = Field(default_factory=list)
+    location_name: str = Field(default="", max_length=160)
+    status: PlanStatus = "draft"
+
+
+class StoryboardGenerationSummary(BaseModel):
+    project_id: str
+    episode_number: int
+    storyboard_version: int
+    shot_count: int
+    total_duration_seconds: int
+    status: str
+

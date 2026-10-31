@@ -134,6 +134,7 @@ def init_db() -> None:
                 ON script_scenes(script_id, scene_number);
             """
         )
+    init_storyboard_tables()
 
 
 @contextmanager
@@ -145,4 +146,48 @@ def get_connection() -> Iterator[sqlite3.Connection]:
         connection.commit()
     finally:
         connection.close()
+
+
+def init_storyboard_tables() -> None:
+    with get_connection() as connection:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS storyboards (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                episode_number INTEGER NOT NULL,
+                storyboard_version INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'draft',
+                is_current INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_storyboards_project
+                ON storyboards(project_id, episode_number, is_current);
+            CREATE TABLE IF NOT EXISTS shots (
+                id TEXT PRIMARY KEY,
+                storyboard_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                episode_number INTEGER NOT NULL,
+                shot_number INTEGER NOT NULL,
+                scene_number INTEGER NOT NULL,
+                shot_type TEXT NOT NULL DEFAULT '中景',
+                camera TEXT NOT NULL DEFAULT '固定',
+                duration_seconds INTEGER NOT NULL DEFAULT 10,
+                visual_description TEXT NOT NULL DEFAULT '',
+                action_text TEXT NOT NULL DEFAULT '',
+                dialogue_text TEXT NOT NULL DEFAULT '',
+                character_names_json TEXT NOT NULL DEFAULT '[]',
+                location_name TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'draft',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (storyboard_id) REFERENCES storyboards(id),
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_shots_storyboard
+                ON shots(storyboard_id, shot_number);
+            """
+        )
 

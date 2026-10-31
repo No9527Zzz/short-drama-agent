@@ -74,3 +74,9 @@ button.secondary { background: #eef1ff; color: #4f5db8; }
 .scene-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 @media (max-width: 700px) { .scene-grid { grid-template-columns: 1fr; } }
 
+
+.shot-list { display: grid; gap: 14px; margin-top: 16px; max-height: 720px; overflow: auto; }
+.shot-card { border: 1px solid #e6e9f2; border-radius: 12px; padding: 16px; background: #fbfcff; }
+.shot-card h4 { margin: 0 0 12px; font-size: 16px; }
+.shot-card h4 span { margin-left: 8px; color: #687189; font-size: 12px; font-weight: 400; }
+

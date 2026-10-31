@@ -465,3 +465,83 @@ function escapeAttr(value) {
   return escapeHtml(value);
 }
 
+
+
+async function loadStoryboard() {
+  if (!selectedProject) return;
+  const episode = document.querySelector("#script-select").value;
+  if (!episode) return;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" + episode + "/storyboard");
+  if (!response.ok) throw new Error("无法加载分镜");
+  const shots = await response.json();
+  const storyboardEditor = document.querySelector("#storyboard-editor");
+  if (!shots.length) {
+    storyboardEditor.classList.add("hidden");
+    return;
+  }
+  storyboardEditor.classList.remove("hidden");
+  document.querySelector("#storyboard-meta").textContent =
+    shots.length + " 个镜头 · " + shots.reduce((sum, shot) => sum + shot.duration_seconds, 0) + " 秒";
+  document.querySelector("#shot-list").innerHTML = shots.map((shot) =>
+    '<article class="shot-card" data-shot="' + shot.shot_number + '">' +
+    '<h4>镜头 ' + shot.shot_number + ' <span>第' + shot.scene_number + '场</span></h4>' +
+    '<div class="scene-grid"><label>景别<input data-shot-field="shot_type" value="' + escapeAttr(shot.shot_type) + '"></label>' +
+    '<label>机位 / 运镜<input data-shot-field="camera" value="' + escapeAttr(shot.camera) + '"></label>' +
+    '<label>时长（秒）<input type="number" min="1" max="60" data-shot-field="duration_seconds" value="' + shot.duration_seconds + '"></label>' +
+    '<label>地点<input data-shot-field="location_name" value="' + escapeAttr(shot.location_name) + '"></label>' +
+    '<label class="wide">画面描述<textarea data-shot-field="visual_description">' + escapeHtml(shot.visual_description) + '</textarea></label>' +
+    '<label class="wide">动作<textarea data-shot-field="action_text">' + escapeHtml(shot.action_text) + '</textarea></label>' +
+    '<label class="wide">对白<textarea data-shot-field="dialogue_text">' + escapeHtml(shot.dialogue_text) + '</textarea></label>' +
+    '</div><button class="secondary save-shot" data-shot="' + shot.shot_number + '">保存镜头</button></article>'
+  ).join("");
+  document.querySelectorAll(".save-shot").forEach((button) => {
+    button.addEventListener("click", () => saveShot(Number(button.dataset.shot)));
+  });
+}
+
+async function saveShot(shotNumber) {
+  const episode = document.querySelector("#script-select").value;
+  const card = document.querySelector('.shot-card[data-shot="' + shotNumber + '"]');
+  const value = (field) => card.querySelector('[data-shot-field="' + field + '"]').value;
+  const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" + episode + "/storyboard/" + shotNumber, {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      shot_type: value("shot_type"),
+      camera: value("camera"),
+      duration_seconds: Number(value("duration_seconds")),
+      visual_description: value("visual_description"),
+      action_text: value("action_text"),
+      dialogue_text: value("dialogue_text"),
+      character_names: [],
+      location_name: value("location_name"),
+      status: "draft",
+    }),
+  });
+  const data = await response.json();
+  const message = document.querySelector("#script-message");
+  message.style.color = response.ok ? "#217c48" : "#b03a4b";
+  message.textContent = response.ok ? "镜头已保存" : (data.detail || "保存镜头失败");
+  if (response.ok) await loadStoryboard();
+}
+
+document.querySelector("#script-select").addEventListener("change", () => {
+  loadStoryboard().catch(() => {});
+});
+document.querySelector("#generate-storyboard").addEventListener("click", async () => {
+  if (!selectedProject) return;
+  const episode = document.querySelector("#script-select").value;
+  const message = document.querySelector("#script-message");
+  try {
+    const response = await fetch("/api/projects/" + selectedProject.id + "/scripts/" + episode + "/storyboard/generate", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "分镜生成失败");
+    message.style.color = "#217c48";
+    message.textContent = "已生成 " + data.shot_count + " 个镜头，共 " + data.total_duration_seconds + " 秒";
+    await loadStoryboard();
+  } catch (error) {
+    message.style.color = "#b03a4b";
+    message.textContent = error.message;
+  }
+});
+

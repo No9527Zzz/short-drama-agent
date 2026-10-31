@@ -104,10 +104,15 @@
         <label>标题<input id="script-title" required maxlength="200"></label>
         <label class="wide">剧情摘要<textarea id="script-synopsis" maxlength="4000"></textarea></label>
         <label class="wide">对白与旁白<textarea id="script-dialogue" maxlength="10000"></textarea></label>
-        <button type="submit">保存单集剧本</button>
+        <button type="submit">保存单集剧本</button><button id="generate-storyboard" type="button" class="secondary">生成本集分镜</button>
       </form>
       <div id="scene-editor" class="scene-editor"></div>
       <p id="script-message" class="message" role="status"></p>
+      <section id="storyboard-editor" class="hidden">
+        <div class="section-heading"><div><p class="eyebrow">STORYBOARD</p><h3>本集分镜</h3></div><span id="storyboard-meta" class="pill"></span></div>
+        <p class="muted">镜头总时长必须保持 60 秒。生成后可以逐镜头修改画面、动作和对白。</p>
+        <div id="shot-list" class="shot-list"></div>
+      </section>
     </section>
     <section id="planning" class="card hidden">
       <div class="section-heading">
@@ -138,6 +143,7 @@
   <script src="/static/app.js"></script>
 </body>
 </html>
+
 
 
 
