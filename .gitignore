@@ -34,3 +34,5 @@ logs/
 .vscode/settings.json
 .DS_Store
 Thumbs.db
+data/
+__pycache__/

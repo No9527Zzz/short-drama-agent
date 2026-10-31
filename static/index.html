@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>短剧生成 Agent</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">SHORT DRAMA AGENT · LOCAL</p>
+        <h1>短剧项目工作台</h1>
+        <p class="muted">创建项目，逐步完成整剧规划、角色设定、分镜和成片制作。</p>
+      </div>
+      <span id="health" class="status">检查服务中…</span>
+    </header>
+
+    <section class="card">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">PROJECT</p>
+          <h2>新建项目</h2>
+        </div>
+        <span class="pill">80 集 · 每集 60 秒 · 9:16</span>
+      </div>
+      <form id="project-form">
+        <label>
+          项目名称
+          <input id="name" name="name" required maxlength="120" placeholder="例如：重生后我成了首席编剧">
+        </label>
+        <label>
+          内容入口
+          <select id="source_type" name="source_type">
+            <option value="idea">创意 / 主线故事</option>
+            <option value="complete_script">完整剧本</option>
+            <option value="novel">小说原文</option>
+          </select>
+        </label>
+        <label class="wide">
+          项目简介
+          <textarea id="description" name="description" maxlength="2000" placeholder="记录故事方向、风格和制作约束"></textarea>
+        </label>
+        <button type="submit">创建项目</button>
+      </form>
+      <p id="form-message" class="message" role="status"></p>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">WORKSPACE</p>
+          <h2>项目列表</h2>
+        </div>
+        <button id="refresh" class="secondary">刷新</button>
+      </div>
+      <div id="projects" class="projects">
+        <p class="muted">正在加载项目…</p>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
